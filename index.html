@@ -1,0 +1,914 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mumbai Local Train Tracker</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a1a; font-family: 'Segoe UI', Arial, sans-serif; overflow: hidden; color: #fff; }
+  #canvas-container { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; }
+  canvas { display: block; }
+  #header {
+    position: fixed; top: 0; left: 0; right: 0; height: 60px;
+    background: linear-gradient(90deg, rgba(0,0,0,0.9) 0%, rgba(10,10,40,0.85) 50%, rgba(0,0,0,0.9) 100%);
+    border-bottom: 1px solid rgba(0,200,255,0.3);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 20px; z-index: 100; backdrop-filter: blur(10px);
+  }
+  #logo {
+    font-size: 22px; font-weight: 700; letter-spacing: 2px;
+    text-shadow: 0 0 10px #00cfff, 0 0 20px #00cfff, 0 0 40px #00cfff;
+    color: #00efff; animation: neonPulse 2s ease-in-out infinite alternate;
+  }
+  #logo span { color: #ff6600; text-shadow: 0 0 10px #ff6600, 0 0 20px #ff6600; }
+  @keyframes neonPulse {
+    from { text-shadow: 0 0 10px #00cfff, 0 0 20px #00cfff, 0 0 40px #00cfff; }
+    to   { text-shadow: 0 0 15px #00efff, 0 0 30px #00efff, 0 0 60px #00efff, 0 0 80px #00efff; }
+  }
+  #live-clock {
+    font-size: 18px; font-weight: 600; color: #00ff88;
+    text-shadow: 0 0 8px #00ff88; letter-spacing: 2px;
+  }
+  #live-clock .label { font-size: 10px; color: #aaa; display: block; text-align: center; letter-spacing: 1px; }
+  #day-night-indicator { font-size: 12px; color: #aaa; text-align: center; }
+  #day-night-indicator .icon { font-size: 20px; display: block; }
+  #line-selector {
+    position: fixed; top: 70px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 10px; z-index: 100; background: rgba(0,0,0,0.6);
+    padding: 8px 16px; border-radius: 30px; border: 1px solid rgba(255,255,255,0.1);
+    backdrop-filter: blur(8px);
+  }
+  .line-btn {
+    padding: 6px 18px; border-radius: 20px; border: none; cursor: pointer;
+    font-size: 13px; font-weight: 600; letter-spacing: 1px;
+    transition: all 0.3s; opacity: 0.7;
+  }
+  .line-btn:hover, .line-btn.active { opacity: 1; transform: scale(1.05); }
+  .line-btn.western { background: #00A651; color: #fff; }
+  .line-btn.central { background: #E31837; color: #fff; }
+  .line-btn.harbour { background: #003F87; color: #fff; border: 1px solid #4488cc; }
+  .line-btn.all { background: rgba(255,255,255,0.15); color: #fff; border: 1px solid rgba(255,255,255,0.3); }
+  #sidebar {
+    position: fixed; top: 120px; left: 10px; width: 300px;
+    max-height: calc(100vh - 200px); overflow-y: auto;
+    background: rgba(5,5,20,0.88); border: 1px solid rgba(0,200,255,0.2);
+    border-radius: 12px; z-index: 100; backdrop-filter: blur(12px);
+  }
+  #sidebar::-webkit-scrollbar { width: 4px; }
+  #sidebar::-webkit-scrollbar-thumb { background: rgba(0,200,255,0.4); border-radius: 2px; }
+  #sidebar-header {
+    padding: 12px 16px; border-bottom: 1px solid rgba(0,200,255,0.2);
+    font-size: 13px; font-weight: 600; color: #00cfff; letter-spacing: 1px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .live-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: #00ff88;
+    animation: blink 1s infinite; display: inline-block; margin-right: 6px;
+  }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+  .train-card {
+    padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.05);
+    transition: background 0.2s;
+  }
+  .train-card:hover { background: rgba(255,255,255,0.04); }
+  .train-card-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+  .train-id { font-size: 13px; font-weight: 700; color: #fff; }
+  .train-status {
+    font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; letter-spacing: 0.5px;
+  }
+  .status-ontime { background: rgba(0,200,100,0.25); color: #00ff88; border: 1px solid #00ff88; }
+  .status-delayed { background: rgba(255,165,0,0.25); color: #ffaa00; border: 1px solid #ffaa00; }
+  .status-cancelled { background: rgba(255,50,50,0.25); color: #ff4444; border: 1px solid #ff4444; }
+  .train-route { font-size: 11px; color: #aaa; margin-bottom: 5px; }
+  .train-stations { font-size: 11px; color: #ccc; display: flex; align-items: center; gap: 4px; margin-bottom: 6px; }
+  .station-arrow { color: #00cfff; }
+  .progress-bar-bg { height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
+  .progress-bar-fill { height: 100%; border-radius: 2px; transition: width 0.5s; }
+  .station-label {
+    position: fixed; pointer-events: none; z-index: 50;
+    font-size: 11px; font-weight: 600; color: #fff;
+    background: rgba(0,0,0,0.7); padding: 2px 6px; border-radius: 4px;
+    border: 1px solid rgba(255,255,255,0.2);
+    text-shadow: 0 0 6px #00cfff;
+    white-space: nowrap; transform: translate(-50%, -100%);
+  }
+  #search-container {
+    position: fixed; top: 120px; right: 10px; z-index: 100;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  #station-search {
+    background: rgba(5,5,20,0.88); border: 1px solid rgba(0,200,255,0.3);
+    border-radius: 8px; padding: 8px 14px; color: #fff; font-size: 13px;
+    outline: none; width: 220px; backdrop-filter: blur(8px);
+  }
+  #station-search::placeholder { color: #555; }
+  #station-search:focus { border-color: rgba(0,200,255,0.7); box-shadow: 0 0 10px rgba(0,200,255,0.2); }
+  #search-results {
+    background: rgba(5,5,20,0.95); border: 1px solid rgba(0,200,255,0.2);
+    border-radius: 8px; overflow: hidden; display: none;
+  }
+  .search-result-item {
+    padding: 8px 14px; font-size: 12px; cursor: pointer; color: #ccc;
+    border-bottom: 1px solid rgba(255,255,255,0.05); transition: background 0.2s;
+  }
+  .search-result-item:hover { background: rgba(0,200,255,0.1); color: #fff; }
+  #bottom-panel {
+    position: fixed; bottom: 0; left: 0; right: 0; height: 130px;
+    background: linear-gradient(0deg, rgba(0,0,0,0.95) 0%, rgba(5,5,20,0.85) 100%);
+    border-top: 1px solid rgba(0,200,255,0.2); z-index: 100;
+    backdrop-filter: blur(10px); padding: 10px 20px;
+  }
+  #bottom-panel h3 { font-size: 12px; color: #00cfff; letter-spacing: 2px; margin-bottom: 8px; text-transform: uppercase; }
+  #schedule-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+  .schedule-card {
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px; padding: 7px 10px; cursor: pointer; transition: all 0.2s;
+  }
+  .schedule-card:hover { background: rgba(0,200,255,0.08); border-color: rgba(0,200,255,0.3); }
+  .schedule-card .sc-time { font-size: 14px; font-weight: 700; color: #fff; }
+  .schedule-card .sc-train { font-size: 10px; color: #888; margin-top: 2px; }
+  .schedule-card .sc-dest { font-size: 11px; color: #ccc; margin-top: 2px; }
+  .schedule-card .sc-line { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+  #stats-bar {
+    position: fixed; top: 70px; right: 240px; z-index: 100;
+    display: flex; gap: 6px;
+  }
+  .stat-chip {
+    background: rgba(5,5,20,0.88); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px; padding: 6px 12px; font-size: 11px; color: #aaa;
+    backdrop-filter: blur(8px); text-align: center;
+  }
+  .stat-chip .stat-value { font-size: 18px; font-weight: 700; color: #00ff88; display: block; }
+  #loading {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: #0a0a1a; z-index: 9999; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 20px; transition: opacity 1s;
+  }
+  #loading .load-logo { font-size: 32px; font-weight: 700; color: #00efff; letter-spacing: 3px; animation: neonPulse 1.5s infinite alternate; }
+  #loading .load-sub { color: #555; font-size: 14px; letter-spacing: 2px; }
+  .load-bar-outer { width: 200px; height: 3px; background: rgba(255,255,255,0.1); border-radius: 2px; }
+  .load-bar-inner { height: 100%; width: 0; background: #00cfff; border-radius: 2px; box-shadow: 0 0 10px #00cfff; animation: loadProgress 2s forwards; }
+  @keyframes loadProgress { to { width: 100%; } }
+  #tooltip {
+    position: fixed; pointer-events: none; z-index: 200;
+    background: rgba(0,0,0,0.9); border: 1px solid rgba(0,200,255,0.4);
+    border-radius: 8px; padding: 8px 12px; font-size: 12px; color: #fff;
+    display: none; max-width: 200px;
+  }
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="load-logo">MUMBAI LOCAL</div>
+  <div class="load-sub">INITIALIZING TRACKER...</div>
+  <div class="load-bar-outer"><div class="load-bar-inner"></div></div>
+</div>
+
+<div id="canvas-container"></div>
+
+<div id="header">
+  <div id="logo">MUMBAI <span>LOCAL</span> TRACKER</div>
+  <div style="display:flex;align-items:center;gap:20px;">
+    <div id="day-night-indicator">
+      <span class="icon" id="dn-icon">&#127769;</span>
+      <span id="dn-label" style="font-size:10px;">NIGHT MODE</span>
+    </div>
+    <div id="live-clock">
+      <span class="label">IST (UTC+5:30)</span>
+      <span id="clock-display">00:00:00</span>
+    </div>
+  </div>
+</div>
+
+<div id="line-selector">
+  <button class="line-btn all active" onclick="selectLine('all')">ALL LINES</button>
+  <button class="line-btn western" onclick="selectLine('western')">WESTERN</button>
+  <button class="line-btn central" onclick="selectLine('central')">CENTRAL</button>
+  <button class="line-btn harbour" onclick="selectLine('harbour')">HARBOUR</button>
+</div>
+
+<div id="sidebar">
+  <div id="sidebar-header">
+    <span><span class="live-dot"></span>LIVE TRAINS</span>
+    <span id="train-count" style="color:#aaa;font-size:11px;">0 trains</span>
+  </div>
+  <div id="train-list"></div>
+</div>
+
+<div id="stats-bar">
+  <div class="stat-chip">ON TIME<span class="stat-value" id="stat-ontime">0</span></div>
+  <div class="stat-chip">DELAYED<span class="stat-value" style="color:#ffaa00;" id="stat-delayed">0</span></div>
+  <div class="stat-chip">TOTAL<span class="stat-value" style="color:#00cfff;" id="stat-total">0</span></div>
+</div>
+
+<div id="search-container">
+  <input type="text" id="station-search" placeholder="Search station..." oninput="searchStation(this.value)">
+  <div id="search-results"></div>
+</div>
+
+<div id="bottom-panel">
+  <h3>Next Departures</h3>
+  <div id="schedule-grid"></div>
+</div>
+
+<div id="labels-container"></div>
+<div id="tooltip"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+var LINES = {
+  western: {
+    name: 'Western Line', color: 0x00A651, colorHex: '#00A651',
+    stations: [
+      { name: 'Churchgate',     x: -8,  z: 20 },
+      { name: 'Mumbai Central', x: -7,  z: 14 },
+      { name: 'Dadar',          x: -6,  z: 7  },
+      { name: 'Andheri',        x: -5,  z: -4 },
+      { name: 'Borivali',       x: -4,  z: -14},
+      { name: 'Virar',          x: -3,  z: -26}
+    ]
+  },
+  central: {
+    name: 'Central Line', color: 0xE31837, colorHex: '#E31837',
+    stations: [
+      { name: 'CSMT',   x: 0,   z: 20  },
+      { name: 'Dadar',  x: -1,  z: 7   },
+      { name: 'Thane',  x: 5,   z: -2  },
+      { name: 'Kalyan', x: 12,  z: -12 },
+      { name: 'Kasara', x: 20,  z: -22 }
+    ]
+  },
+  harbour: {
+    name: 'Harbour Line', color: 0x4488ff, colorHex: '#4488ff',
+    stations: [
+      { name: 'CSMT',   x: 0,  z: 20  },
+      { name: 'Kurla',  x: 4,  z: 5   },
+      { name: 'Vashi',  x: 8,  z: -5  },
+      { name: 'Panvel', x: 14, z: -15 }
+    ]
+  }
+};
+
+var TRAIN_DEFS = [
+  { id: 'WL-1001', line: 'western', dir: 1,  seg: 0, prog: 0.10, status: 'ON TIME'   },
+  { id: 'WL-1002', line: 'western', dir: -1, seg: 4, prog: 0.60, status: 'DELAYED'   },
+  { id: 'WL-1003', line: 'western', dir: 1,  seg: 2, prog: 0.30, status: 'ON TIME'   },
+  { id: 'WL-1004', line: 'western', dir: -1, seg: 1, prog: 0.80, status: 'ON TIME'   },
+  { id: 'WL-1005', line: 'western', dir: 1,  seg: 3, prog: 0.45, status: 'ON TIME'   },
+  { id: 'CL-2001', line: 'central', dir: 1,  seg: 0, prog: 0.50, status: 'ON TIME'   },
+  { id: 'CL-2002', line: 'central', dir: -1, seg: 3, prog: 0.20, status: 'DELAYED'   },
+  { id: 'CL-2003', line: 'central', dir: 1,  seg: 1, prog: 0.70, status: 'ON TIME'   },
+  { id: 'CL-2004', line: 'central', dir: -1, seg: 2, prog: 0.40, status: 'CANCELLED' },
+  { id: 'CL-2005', line: 'central', dir: 1,  seg: 2, prog: 0.25, status: 'ON TIME'   },
+  { id: 'HL-3001', line: 'harbour', dir: 1,  seg: 0, prog: 0.90, status: 'ON TIME'   },
+  { id: 'HL-3002', line: 'harbour', dir: -1, seg: 2, prog: 0.15, status: 'ON TIME'   },
+  { id: 'HL-3003', line: 'harbour', dir: 1,  seg: 1, prog: 0.55, status: 'DELAYED'   }
+];
+
+var scene, camera, renderer, controls;
+var trainMeshes = {};
+var stationSpheres = [];
+var particleSystems = [];
+var labelElements = {};
+var trains = [];
+var dayNightCycle = 0;
+var selectedLine = 'all';
+var frameCount = 0;
+var ambientLight, sunLight, moonLight;
+var raycaster, mouse;
+var tooltip = document.getElementById('tooltip');
+var ringMeshes = [];
+
+function init() {
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x020210);
+  scene.fog = new THREE.FogExp2(0x020210, 0.010);
+
+  camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 500);
+  camera.position.set(0, 38, 58);
+  camera.lookAt(0, 0, 0);
+
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 0.8;
+  document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+  controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.05;
+  controls.autoRotate = true;
+  controls.autoRotateSpeed = 0.35;
+  controls.minDistance = 15;
+  controls.maxDistance = 120;
+  controls.maxPolarAngle = Math.PI / 2.1;
+  controls.target.set(0, 0, 0);
+
+  raycaster = new THREE.Raycaster();
+  mouse = new THREE.Vector2(-999, -999);
+
+  setupLighting();
+  buildScene();
+  buildTracks();
+  buildStations();
+  buildTrains();
+  buildParticles();
+  buildUI();
+
+  window.addEventListener('resize', onResize);
+  renderer.domElement.addEventListener('mousemove', onMouseMove);
+
+  animate();
+}
+
+function setupLighting() {
+  ambientLight = new THREE.AmbientLight(0x112244, 0.5);
+  scene.add(ambientLight);
+
+  sunLight = new THREE.DirectionalLight(0xffeedd, 0);
+  sunLight.position.set(30, 60, 20);
+  sunLight.castShadow = true;
+  sunLight.shadow.mapSize.width = 1024;
+  sunLight.shadow.mapSize.height = 1024;
+  sunLight.shadow.camera.left = -60;
+  sunLight.shadow.camera.right = 60;
+  sunLight.shadow.camera.top = 60;
+  sunLight.shadow.camera.bottom = -60;
+  scene.add(sunLight);
+
+  moonLight = new THREE.DirectionalLight(0x4466aa, 0.5);
+  moonLight.position.set(-30, 50, -20);
+  scene.add(moonLight);
+
+  var cityGlow = new THREE.PointLight(0x2244aa, 0.8, 80);
+  cityGlow.position.set(0, 5, 0);
+  scene.add(cityGlow);
+}
+
+function buildScene() {
+  // Grid
+  var grid = new THREE.GridHelper(120, 40, 0x0a1a30, 0x051020);
+  grid.position.y = -0.5;
+  scene.add(grid);
+
+  // Ground
+  var gGeo = new THREE.PlaneGeometry(120, 120);
+  var gMat = new THREE.MeshLambertMaterial({ color: 0x020815 });
+  var ground = new THREE.Mesh(gGeo, gMat);
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.y = -0.52;
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  // Sea
+  var seaGeo = new THREE.PlaneGeometry(22, 18);
+  var seaMat = new THREE.MeshPhongMaterial({
+    color: 0x001a3a, emissive: 0x001030, emissiveIntensity: 0.4,
+    transparent: true, opacity: 0.9, shininess: 100
+  });
+  var sea = new THREE.Mesh(seaGeo, seaMat);
+  sea.rotation.x = -Math.PI / 2;
+  sea.position.set(-11, -0.44, 27);
+  scene.add(sea);
+
+  // Stars
+  var starGeo = new THREE.BufferGeometry();
+  var count = 1800;
+  var pos = new Float32Array(count * 3);
+  for (var i = 0; i < count; i++) {
+    pos[i*3]   = (Math.random() - 0.5) * 400;
+    pos[i*3+1] = Math.random() * 200 + 20;
+    pos[i*3+2] = (Math.random() - 0.5) * 400;
+  }
+  starGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  var starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.3, transparent: true, opacity: 0.8 });
+  var stars = new THREE.Points(starGeo, starMat);
+  stars.name = 'stars';
+  scene.add(stars);
+
+  // Buildings
+  var bdata = [
+    [15, 10, 3, 18, 3, 0x0a1525], [18, 8, 2, 25, 2, 0x0a1020],
+    [12, 12, 4, 14, 3, 0x081218], [21, 12, 2, 20, 2, 0x0a1020],
+    [24, 10, 3, 16, 3, 0x0a1525], [14, 5, 2, 22, 2, 0x080e18],
+    [-15, 10, 3, 15, 3, 0x0a1525], [-18, 8, 2, 20, 2, 0x0a1020],
+    [-12, 12, 3, 12, 3, 0x081218], [8, -30, 3, 18, 3, 0x0a1020],
+    [15, -28, 2, 22, 2, 0x0a1525], [-8, -30, 3, 16, 3, 0x081218],
+    [25, -20, 2, 14, 2, 0x0a1020], [28, -18, 3, 19, 3, 0x0a1525],
+    [-20, -15, 2, 13, 2, 0x0a1020], [-25, -12, 3, 17, 3, 0x081218],
+    [10, 15, 2, 12, 2, 0x0a1020], [-22, 5, 3, 14, 2, 0x0a1525]
+  ];
+  bdata.forEach(function(b) {
+    var bGeo = new THREE.BoxGeometry(b[2], b[3], b[4]);
+    var bMat = new THREE.MeshPhongMaterial({ color: b[5], emissive: b[5], emissiveIntensity: 0.3 });
+    var bMesh = new THREE.Mesh(bGeo, bMat);
+    bMesh.position.set(b[0], b[3]/2 - 0.5, b[1]);
+    bMesh.castShadow = true;
+    scene.add(bMesh);
+    // Rooftop beacon
+    var rGeo = new THREE.BoxGeometry(0.25, 0.25, 0.25);
+    var rMat = new THREE.MeshBasicMaterial({ color: 0xff2222 });
+    var rMesh = new THREE.Mesh(rGeo, rMat);
+    rMesh.position.set(b[0], b[3] - 0.2, b[1]);
+    rMesh.name = 'beacon_' + b[0];
+    scene.add(rMesh);
+  });
+}
+
+function buildTracks() {
+  Object.keys(LINES).forEach(function(lineKey) {
+    var lineData = LINES[lineKey];
+    var stations = lineData.stations;
+    for (var i = 0; i < stations.length - 1; i++) {
+      var s1 = stations[i], s2 = stations[i+1];
+      var start = new THREE.Vector3(s1.x, 0.1, s1.z);
+      var end   = new THREE.Vector3(s2.x, 0.1, s2.z);
+      var len   = start.distanceTo(end);
+      var mid   = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
+
+      // Rail
+      var railGeo = new THREE.BoxGeometry(0.22, 0.1, len);
+      var railMat = new THREE.MeshPhongMaterial({
+        color: lineData.color, emissive: lineData.color, emissiveIntensity: 0.8, shininess: 100
+      });
+      var rail = new THREE.Mesh(railGeo, railMat);
+      rail.position.copy(mid);
+      rail.lookAt(end);
+      rail.rotateY(Math.PI / 2);
+      scene.add(rail);
+
+      // Glow
+      var glowGeo = new THREE.BoxGeometry(0.55, 0.05, len);
+      var glowMat = new THREE.MeshBasicMaterial({ color: lineData.color, transparent: true, opacity: 0.2 });
+      var glow = new THREE.Mesh(glowGeo, glowMat);
+      glow.position.copy(mid);
+      glow.position.y = 0.06;
+      glow.lookAt(end);
+      glow.rotateY(Math.PI / 2);
+      scene.add(glow);
+
+      // Sleepers
+      var nSleepers = Math.floor(len * 1.4);
+      for (var s = 0; s < nSleepers; s++) {
+        var t = (s + 0.5) / nSleepers;
+        var sPos = new THREE.Vector3().lerpVectors(start, end, t);
+        var slGeo = new THREE.BoxGeometry(1.1, 0.07, 0.16);
+        var slMat = new THREE.MeshPhongMaterial({ color: 0x1a1008 });
+        var sl = new THREE.Mesh(slGeo, slMat);
+        sl.position.copy(sPos);
+        sl.position.y = 0.035;
+        sl.lookAt(sPos.clone().add(new THREE.Vector3(s2.x - s1.x, 0, s2.z - s1.z).normalize()));
+        scene.add(sl);
+      }
+    }
+  });
+}
+
+function buildStations() {
+  var seen = {};
+  Object.keys(LINES).forEach(function(lineKey) {
+    LINES[lineKey].stations.forEach(function(st) {
+      if (seen[st.name]) return;
+      seen[st.name] = true;
+
+      var sGeo = new THREE.SphereGeometry(0.5, 16, 16);
+      var sMat = new THREE.MeshPhongMaterial({
+        color: 0xffffff, emissive: 0x88ccff, emissiveIntensity: 1.0, shininess: 200
+      });
+      var sphere = new THREE.Mesh(sGeo, sMat);
+      sphere.position.set(st.x, 0.5, st.z);
+      sphere.userData = { name: st.name, x: st.x, z: st.z };
+      scene.add(sphere);
+      stationSpheres.push(sphere);
+
+      // Ring
+      var rGeo = new THREE.RingGeometry(0.65, 1.05, 24);
+      var rMat = new THREE.MeshBasicMaterial({ color: 0x00cfff, transparent: true, opacity: 0.4, side: THREE.DoubleSide });
+      var ring = new THREE.Mesh(rGeo, rMat);
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.set(st.x, 0.11, st.z);
+      scene.add(ring);
+      ringMeshes.push(ring);
+
+      // Pole
+      var pGeo = new THREE.CylinderGeometry(0.05, 0.05, 2, 6);
+      var pMat = new THREE.MeshPhongMaterial({ color: 0x334455 });
+      var pole = new THREE.Mesh(pGeo, pMat);
+      pole.position.set(st.x, 1, st.z);
+      scene.add(pole);
+
+      // HTML label
+      var lEl = document.createElement('div');
+      lEl.className = 'station-label';
+      lEl.textContent = st.name;
+      document.getElementById('labels-container').appendChild(lEl);
+      labelElements[st.name] = { el: lEl, pos: new THREE.Vector3(st.x, 2.8, st.z) };
+    });
+  });
+}
+
+function buildTrains() {
+  trains = TRAIN_DEFS.map(function(d) { return Object.assign({}, d); });
+
+  trains.forEach(function(train) {
+    var lineData = LINES[train.line];
+    var color = lineData.color;
+    var group = new THREE.Group();
+
+    // Main carriages
+    for (var c = 0; c < 3; c++) {
+      var bGeo = new THREE.BoxGeometry(1.2, 0.6, 2.2);
+      var bMat = new THREE.MeshPhongMaterial({
+        color: color, emissive: color, emissiveIntensity: 0.35, shininess: 130
+      });
+      var body = new THREE.Mesh(bGeo, bMat);
+      body.position.z = -c * 2.6;
+      body.castShadow = true;
+      group.add(body);
+
+      var wGeo = new THREE.BoxGeometry(1.21, 0.2, 1.7);
+      var wMat = new THREE.MeshBasicMaterial({ color: 0xaaddff, transparent: true, opacity: 0.55 });
+      var win = new THREE.Mesh(wGeo, wMat);
+      win.position.set(0, 0.1, -c * 2.6);
+      group.add(win);
+
+      var rGeo2 = new THREE.BoxGeometry(1.0, 0.08, 2.0);
+      var rMat2 = new THREE.MeshPhongMaterial({ color: 0x1a1a2a });
+      var roof = new THREE.Mesh(rGeo2, rMat2);
+      roof.position.set(0, 0.34, -c * 2.6);
+      group.add(roof);
+    }
+
+    // Headlights
+    var hlGeo = new THREE.SphereGeometry(0.1, 8, 8);
+    var hlMat = new THREE.MeshBasicMaterial({ color: 0xffffcc });
+    [-0.32, 0.32].forEach(function(ox) {
+      var hl = new THREE.Mesh(hlGeo.clone(), hlMat.clone());
+      hl.position.set(ox, 0.05, 1.2);
+      group.add(hl);
+    });
+
+    var ptLight = new THREE.PointLight(0xffffaa, 1.5, 8);
+    ptLight.position.set(0, 0.6, 1.5);
+    group.add(ptLight);
+
+    group.position.y = 0.35;
+    scene.add(group);
+    trainMeshes[train.id] = group;
+    setTrainPosition(train);
+  });
+}
+
+function getSegPos(lineKey, seg, prog) {
+  var sts = LINES[lineKey].stations;
+  var s = Math.max(0, Math.min(seg, sts.length - 2));
+  var a = sts[s], b = sts[s+1];
+  if (!a || !b) return new THREE.Vector3(0, 0.35, 0);
+  return new THREE.Vector3(a.x + (b.x - a.x) * prog, 0.35, a.z + (b.z - a.z) * prog);
+}
+
+function getSegDir(lineKey, seg) {
+  var sts = LINES[lineKey].stations;
+  var s = Math.max(0, Math.min(seg, sts.length - 2));
+  var a = sts[s], b = sts[s+1];
+  if (!a || !b) return new THREE.Vector3(0, 0, 1);
+  return new THREE.Vector3(b.x - a.x, 0, b.z - a.z).normalize();
+}
+
+function setTrainPosition(train) {
+  var mesh = trainMeshes[train.id];
+  if (!mesh) return;
+  var pos = getSegPos(train.line, train.seg, train.prog);
+  mesh.position.lerp(pos, 0.18);
+  var dir = getSegDir(train.line, train.seg);
+  if (train.dir < 0) dir.negate();
+  if (dir.length() > 0.01) {
+    mesh.rotation.y = Math.atan2(dir.x, dir.z);
+  }
+  mesh.visible = (selectedLine === 'all' || selectedLine === train.line);
+}
+
+function buildParticles() {
+  trains.forEach(function(train) {
+    var geo = new THREE.BufferGeometry();
+    var cnt = 25;
+    var pos = new Float32Array(cnt * 3);
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    var mat = new THREE.PointsMaterial({
+      color: LINES[train.line].color, size: 0.18,
+      transparent: true, opacity: 0.75, blending: THREE.AdditiveBlending, depthWrite: false
+    });
+    var pts = new THREE.Points(geo, mat);
+    scene.add(pts);
+    var life = new Float32Array(cnt);
+    for (var i = 0; i < cnt; i++) life[i] = Math.random();
+    particleSystems.push({ pts: pts, train: train, life: life, geo: geo, count: cnt });
+  });
+}
+
+function updateParticles() {
+  particleSystems.forEach(function(p) {
+    var vis = (selectedLine === 'all' || selectedLine === p.train.line) && p.train.status !== 'CANCELLED';
+    p.pts.visible = vis;
+    if (!vis) return;
+    var tpos = getSegPos(p.train.line, p.train.seg, p.train.prog);
+    var arr = p.geo.attributes.position.array;
+    for (var i = 0; i < p.count; i++) {
+      p.life[i] += 0.04;
+      if (p.life[i] >= 1) {
+        p.life[i] = 0;
+        arr[i*3]   = tpos.x + (Math.random() - 0.5) * 0.4;
+        arr[i*3+1] = tpos.y + Math.random() * 0.3;
+        arr[i*3+2] = tpos.z + (Math.random() - 0.5) * 0.4;
+      } else {
+        arr[i*3+1] += 0.025;
+      }
+    }
+    p.geo.attributes.position.needsUpdate = true;
+  });
+}
+
+function simulateTrains(delta) {
+  trains.forEach(function(train) {
+    if (train.status === 'CANCELLED') return;
+    var speed = train.status === 'DELAYED' ? 0.0025 : 0.0045;
+    var sts = LINES[train.line].stations;
+    var maxSeg = sts.length - 2;
+
+    train.prog += speed * train.dir * delta * 60;
+
+    if (train.prog >= 1) {
+      train.prog = 0;
+      train.seg += 1;
+      if (train.seg > maxSeg) { train.seg = maxSeg; train.dir = -1; train.prog = 1; }
+    } else if (train.prog <= 0) {
+      train.prog = 1;
+      train.seg -= 1;
+      if (train.seg < 0) { train.seg = 0; train.dir = 1; train.prog = 0; }
+    }
+    setTrainPosition(train);
+  });
+}
+
+function updateDayNight(delta) {
+  dayNightCycle += delta * 0.025;
+  var t = (Math.sin(dayNightCycle) + 1) / 2;
+  var isDay = t > 0.5;
+
+  sunLight.intensity = t * 1.2;
+  moonLight.intensity = (1 - t) * 0.6;
+  ambientLight.intensity = 0.3 + t * 0.5;
+
+  var bgNight = new THREE.Color(0x020210);
+  var bgDay   = new THREE.Color(0x0d2040);
+  scene.background.copy(bgNight).lerp(bgDay, t);
+  scene.fog.color.copy(bgNight).lerp(bgDay, t);
+
+  var stars = scene.getObjectByName('stars');
+  if (stars) stars.material.opacity = 0.8 - t * 0.65;
+
+  stationSpheres.forEach(function(s) {
+    s.material.emissiveIntensity = isDay ? 0.4 : 1.2;
+  });
+
+  document.getElementById('dn-icon').textContent  = isDay ? '☀️' : '🌙';
+  document.getElementById('dn-label').textContent = isDay ? 'DAY MODE' : 'NIGHT MODE';
+  renderer.toneMappingExposure = 0.6 + t * 0.4;
+
+  // Beacon blink
+  frameCount % 30 === 0 && scene.traverse(function(obj) {
+    if (obj.name && obj.name.indexOf('beacon_') === 0) {
+      obj.material.color.setHex(frameCount % 60 < 30 ? 0xff2222 : 0x660000);
+    }
+  });
+}
+
+function animateRings() {
+  var pulse = 0.25 + Math.abs(Math.sin(frameCount * 0.04)) * 0.25;
+  ringMeshes.forEach(function(r, i) {
+    r.rotation.z += 0.008 + i * 0.001;
+    r.material.opacity = pulse;
+  });
+}
+
+function updateLabels() {
+  Object.keys(labelElements).forEach(function(name) {
+    var data = labelElements[name];
+    var v = data.pos.clone();
+    v.project(camera);
+    if (v.z > 1) { data.el.style.opacity = '0'; return; }
+    var x = (v.x * 0.5 + 0.5) * window.innerWidth;
+    var y = (-v.y * 0.5 + 0.5) * window.innerHeight;
+    data.el.style.left = x + 'px';
+    data.el.style.top  = y + 'px';
+    var dist = camera.position.distanceTo(data.pos);
+    data.el.style.opacity = dist < 55 ? String(Math.max(0, 1 - (dist - 12) / 43)) : '0';
+  });
+}
+
+function onMouseMove(e) {
+  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  tooltip.style.left = (e.clientX + 14) + 'px';
+  tooltip.style.top  = (e.clientY - 10) + 'px';
+  raycaster.setFromCamera(mouse, camera);
+  var hits = raycaster.intersectObjects(stationSpheres);
+  if (hits.length > 0) {
+    var ud = hits[0].object.userData;
+    tooltip.style.display = 'block';
+    tooltip.innerHTML = '<b>' + ud.name + '</b><br><span style="color:#aaa">Station</span>';
+  } else {
+    tooltip.style.display = 'none';
+  }
+}
+
+function buildUI() {
+  updateTrainList();
+  updateSchedules();
+  updateClock();
+  setInterval(updateClock, 1000);
+  setInterval(updateTrainList, 2500);
+  setInterval(updateSchedules, 30000);
+  setInterval(function() {
+    trains.forEach(function(t) {
+      if (Math.random() < 0.06) {
+        var opts = ['ON TIME', 'DELAYED', 'ON TIME', 'ON TIME', 'ON TIME'];
+        if (t.status !== 'CANCELLED') t.status = opts[Math.floor(Math.random() * opts.length)];
+      }
+    });
+  }, 9000);
+}
+
+function updateClock() {
+  var now = new Date();
+  var istMs = now.getTime() + (5.5 * 3600000) + (now.getTimezoneOffset() * 60000);
+  var ist = new Date(istMs);
+  var h = String(ist.getUTCHours()).padStart(2, '0');
+  var m = String(ist.getUTCMinutes()).padStart(2, '0');
+  var s = String(ist.getUTCSeconds()).padStart(2, '0');
+  document.getElementById('clock-display').textContent = h + ':' + m + ':' + s;
+}
+
+function updateTrainList() {
+  var list = document.getElementById('train-list');
+  var filtered = selectedLine === 'all' ? trains : trains.filter(function(t) { return t.line === selectedLine; });
+  var onTime = 0, delayed = 0;
+
+  list.innerHTML = filtered.map(function(train) {
+    var ld = LINES[train.line];
+    var sts = ld.stations;
+    var seg = Math.min(train.seg, sts.length - 2);
+    var cur = sts[seg], nxt = sts[seg + 1];
+    var pct = Math.round(train.prog * 100);
+    var sc = train.status === 'ON TIME' ? 'status-ontime' : train.status === 'DELAYED' ? 'status-delayed' : 'status-cancelled';
+    var arrow = train.dir > 0 ? '&#8593;' : '&#8595;';
+    if (train.status === 'ON TIME') onTime++;
+    else if (train.status === 'DELAYED') delayed++;
+
+    return '<div class="train-card" style="border-left:3px solid ' + ld.colorHex + '">'
+      + '<div class="train-card-top">'
+      + '<span class="train-id">' + arrow + ' ' + train.id + '</span>'
+      + '<span class="train-status ' + sc + '">' + train.status + '</span>'
+      + '</div>'
+      + '<div class="train-route" style="color:' + ld.colorHex + '">' + ld.name + '</div>'
+      + '<div class="train-stations">'
+      + '<span>' + (cur ? cur.name : '-') + '</span>'
+      + '<span class="station-arrow">&#8594;</span>'
+      + '<span>' + (nxt ? nxt.name : 'Terminal') + '</span>'
+      + '</div>'
+      + '<div class="progress-bar-bg"><div class="progress-bar-fill" style="width:' + pct + '%;background:' + ld.colorHex + ';box-shadow:0 0 5px ' + ld.colorHex + '"></div></div>'
+      + '</div>';
+  }).join('');
+
+  document.getElementById('train-count').textContent = filtered.length + ' trains';
+  document.getElementById('stat-ontime').textContent  = onTime;
+  document.getElementById('stat-delayed').textContent = delayed;
+  document.getElementById('stat-total').textContent   = filtered.length;
+}
+
+function updateSchedules() {
+  var grid = document.getElementById('schedule-grid');
+  var now = new Date();
+  var istMs = now.getTime() + (5.5 * 3600000) + (now.getTimezoneOffset() * 60000);
+  var ist = new Date(istMs);
+
+  var sched = [
+    { line: 'western', from: 'Churchgate',     to: 'Virar',     color: '#00A651', num: 'WL-1060', offset: 3  },
+    { line: 'central', from: 'CSMT',           to: 'Kasara',    color: '#E31837', num: 'CL-2040', offset: 7  },
+    { line: 'harbour', from: 'CSMT',           to: 'Panvel',    color: '#4488ff', num: 'HL-3020', offset: 12 },
+    { line: 'western', from: 'Virar',          to: 'Churchgate',color: '#00A651', num: 'WL-1061', offset: 18 },
+    { line: 'central', from: 'Kalyan',         to: 'CSMT',      color: '#E31837', num: 'CL-2041', offset: 23 }
+  ];
+
+  grid.innerHTML = sched.map(function(s) {
+    var t = new Date(ist.getTime() + s.offset * 60000);
+    var h = String(t.getUTCHours()).padStart(2,'0');
+    var m = String(t.getUTCMinutes()).padStart(2,'0');
+    return '<div class="schedule-card">'
+      + '<div class="sc-time">' + h + ':' + m + '</div>'
+      + '<div class="sc-train"><span class="sc-line" style="background:' + s.color + '"></span>' + s.num + '</div>'
+      + '<div class="sc-dest">' + s.from + ' &rarr; ' + s.to + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+var allStations = [];
+(function() {
+  var seen = {};
+  Object.keys(LINES).forEach(function(lk) {
+    LINES[lk].stations.forEach(function(st) {
+      if (!seen[st.name]) { seen[st.name] = true; allStations.push(st.name); }
+    });
+  });
+})();
+
+function searchStation(val) {
+  var res = document.getElementById('search-results');
+  if (!val.trim()) { res.style.display = 'none'; return; }
+  var matches = allStations.filter(function(n) { return n.toLowerCase().indexOf(val.toLowerCase()) !== -1; });
+  if (!matches.length) { res.style.display = 'none'; return; }
+  res.style.display = 'block';
+  res.innerHTML = matches.map(function(n) {
+    return '<div class="search-result-item" onclick="focusStation(\'' + n + '\')">' + n + '</div>';
+  }).join('');
+}
+
+function focusStation(name) {
+  document.getElementById('search-results').style.display = 'none';
+  document.getElementById('station-search').value = name;
+  var found = false;
+  Object.keys(LINES).forEach(function(lk) {
+    if (found) return;
+    var st = LINES[lk].stations.find(function(s) { return s.name === name; });
+    if (st) {
+      found = true;
+      controls.autoRotate = false;
+      camera.position.set(st.x + 6, 14, st.z + 16);
+      controls.target.set(st.x, 0, st.z);
+      setTimeout(function() { controls.autoRotate = true; }, 5000);
+    }
+  });
+}
+
+function selectLine(line) {
+  selectedLine = line;
+  document.querySelectorAll('.line-btn').forEach(function(b) { b.classList.remove('active'); });
+  var idx = { all: 0, western: 1, central: 2, harbour: 3 };
+  document.querySelectorAll('.line-btn')[idx[line]].classList.add('active');
+  trains.forEach(function(t) {
+    var m = trainMeshes[t.id];
+    if (m) m.visible = (line === 'all' || line === t.line);
+  });
+  particleSystems.forEach(function(p) {
+    p.pts.visible = (line === 'all' || line === p.train.line) && p.train.status !== 'CANCELLED';
+  });
+  updateTrainList();
+}
+
+var lastTime = performance.now();
+function animate() {
+  requestAnimationFrame(animate);
+  var now = performance.now();
+  var delta = Math.min((now - lastTime) / 1000, 0.1);
+  lastTime = now;
+  frameCount++;
+
+  controls.update();
+  simulateTrains(delta);
+  updateParticles();
+  updateDayNight(delta);
+  animateRings();
+
+  if (frameCount % 2 === 0) updateLabels();
+
+  renderer.render(scene, camera);
+}
+
+function onResize() {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+window.addEventListener('load', function() {
+  try {
+    init();
+    setTimeout(function() {
+      var ld = document.getElementById('loading');
+      ld.style.opacity = '0';
+      setTimeout(function() { ld.style.display = 'none'; }, 1000);
+    }, 2400);
+  } catch(e) {
+    console.error(e);
+    document.getElementById('loading').innerHTML = '<div style="color:#ff4444;padding:20px;text-align:center;font-size:16px;">Error: ' + e.message + '</div>';
+  }
+});
+</script>
+</body>
+</html>
